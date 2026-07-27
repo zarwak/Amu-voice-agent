@@ -142,8 +142,9 @@ export default function App() {
   }, [status, micEnabled, uiState]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.filter(Boolean)));
-  }, [history]);
+    const toSave = currentTurn ? [...history, currentTurn] : history;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave.filter(Boolean)));
+  }, [history, currentTurn]);
 
   useEffect(() => {
     localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(pastSessions));
@@ -235,8 +236,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const uiStateRef = useRef(uiState);
+  uiStateRef.current = uiState;
+
   const handleUtteranceReady = useCallback(
     (blob) => {
+      // Ignore speech captured while a turn is already in flight (thinking/
+      // speaking), so one utterance can't trigger multiple overlapping
+      // replies. Read via ref rather than a dependency so this callback's
+      // identity stays stable -- useAudioCapture's effect depends on it, and
+      // an unstable reference would tear down/recreate the mic every turn.
+      if (uiStateRef.current !== "listening") return;
       sendAudio(blob);
     },
     [sendAudio]
@@ -263,10 +273,20 @@ export default function App() {
 
   const transcriptTurns = [...history, ...(currentTurn ? [currentTurn] : [])];
 
+  const currentSession =
+    transcriptTurns.length > 0
+      ? {
+          id: "current",
+          title: transcriptTurns[0]?.userText?.slice(0, 50) || "Current conversation",
+          turns: transcriptTurns,
+        }
+      : null;
+
   return (
     <div className="app">
       <div className="shell">
         <SessionsSidebar
+          currentSession={currentSession}
           sessions={pastSessions}
           onNewSession={handleNewSession}
           onSelectSession={handleSelectSession}

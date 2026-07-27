@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const DEFAULT_SILENCE_THRESHOLD = 0.02;
-const SILENCE_DURATION_MS = 700;
+const SILENCE_DURATION_MS = 1000;
 const MIN_SPEECH_MS = 300;
 
 export function useAudioCapture({
