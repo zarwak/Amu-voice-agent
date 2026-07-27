@@ -110,7 +110,7 @@ export default function App() {
     idle: "Getting ready…",
     off: "Paused — press Space to listen",
     listening: "Listening… (Space to pause)",
-    thinking: "Thinking…",
+    thinking: "Thinking",
     speaking: "Speaking…",
   }[uiState];
 
@@ -130,7 +130,16 @@ export default function App() {
           {banner && <p className="status-banner error">{banner}</p>}
 
           <VoiceIndicator state={uiState} levelRef={levelRef} />
-          <p className="state-label">{stateLabel}</p>
+          <p className="state-label">
+            {stateLabel}
+            {uiState === "thinking" && (
+              <span className="thinking-dots">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            )}
+          </p>
         </div>
 
         <div className="transcript-card">
