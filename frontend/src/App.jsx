@@ -4,10 +4,12 @@ import { useVoiceSocket } from "./hooks/useVoiceSocket";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { VoiceIndicator } from "./components/VoiceIndicator";
 import { TranscriptPanel } from "./components/TranscriptPanel";
+import { SessionsSidebar } from "./components/SessionsSidebar";
 import "./App.css";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
 const STORAGE_KEY = "amu-conversation-history";
+const SESSIONS_STORAGE_KEY = "amu-past-sessions";
 
 let turnIdCounter = 0;
 
@@ -27,10 +29,30 @@ function loadStoredHistory() {
   }
 }
 
+function loadStoredSessions() {
+  try {
+    const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function makeSessionFromTurns(turns) {
+  return {
+    id: `session-${Date.now()}`,
+    title: turns[0]?.userText?.slice(0, 50) || "Conversation",
+    turns,
+    updatedAt: Date.now(),
+  };
+}
+
 export default function App() {
   const [uiState, setUiState] = useState("idle");
   const [micEnabled, setMicEnabled] = useState(true);
   const [history, setHistory] = useState(loadStoredHistory);
+  const [pastSessions, setPastSessions] = useState(loadStoredSessions);
   const [currentTurn, setCurrentTurn] = useState(null);
   const [banner, setBanner] = useState(null);
   const levelRef = useRef(0);
@@ -101,6 +123,10 @@ export default function App() {
   }, [history]);
 
   useEffect(() => {
+    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(pastSessions));
+  }, [pastSessions]);
+
+  useEffect(() => {
     if (status === "open" && !rehydratedRef.current) {
       rehydratedRef.current = true;
       if (history.length > 0) {
@@ -115,11 +141,42 @@ export default function App() {
   }, [status, history, sendJson]);
 
   const handleNewSession = useCallback(() => {
+    if (history.length > 0) {
+      setPastSessions((prev) => [makeSessionFromTurns(history), ...prev]);
+    }
     pendingTurnRef.current = null;
     setCurrentTurn(null);
     setHistory([]);
     sendJson({ type: "new_session" });
-  }, [sendJson]);
+  }, [history, sendJson]);
+
+  const handleSelectSession = useCallback(
+    (sessionId) => {
+      const target = pastSessions.find((s) => s.id === sessionId);
+      if (!target) return;
+
+      setPastSessions((prev) => {
+        const withoutTarget = prev.filter((s) => s.id !== sessionId);
+        return history.length > 0
+          ? [makeSessionFromTurns(history), ...withoutTarget]
+          : withoutTarget;
+      });
+
+      pendingTurnRef.current = null;
+      setCurrentTurn(null);
+      setHistory(target.turns);
+
+      sendJson({ type: "new_session" });
+      sendJson({
+        type: "rehydrate",
+        turns: target.turns.map((t) => ({
+          userText: t.userText,
+          assistantText: t.assistantText,
+        })),
+      });
+    },
+    [history, pastSessions, sendJson]
+  );
 
   useEffect(() => {
     function handleKeyDown(e) {
@@ -162,6 +219,12 @@ export default function App() {
   return (
     <div className="app">
       <div className="shell">
+        <SessionsSidebar
+          sessions={pastSessions}
+          onNewSession={handleNewSession}
+          onSelectSession={handleSelectSession}
+        />
+
         <div className="voice-card">
           <header className="app-header">
             <h1>AMU</h1>
@@ -186,17 +249,7 @@ export default function App() {
         </div>
 
         <div className="transcript-card">
-          <div className="transcript-card-header">
-            <h2>Transcript</h2>
-            <button
-              type="button"
-              className="new-session-btn"
-              onClick={handleNewSession}
-              disabled={transcriptTurns.length === 0}
-            >
-              New Session
-            </button>
-          </div>
+          <h2>Transcript</h2>
           <TranscriptPanel turns={transcriptTurns} />
         </div>
       </div>
