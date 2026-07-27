@@ -1,3 +1,4 @@
+import json
 import os
 
 from dotenv import load_dotenv
@@ -43,7 +44,30 @@ async def websocket_endpoint(websocket: WebSocket):
     session = ConversationSession()
     try:
         while True:
-            audio_bytes = await websocket.receive_bytes()
+            message = await websocket.receive()
+
+            if message["type"] == "websocket.disconnect":
+                break
+
+            if message.get("bytes") is not None:
+                audio_bytes = message["bytes"]
+            elif message.get("text") is not None:
+                try:
+                    control = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    continue
+
+                if control.get("type") == "rehydrate":
+                    for turn in control.get("turns", []):
+                        if turn.get("userText"):
+                            session.add_user_message(turn["userText"])
+                        if turn.get("assistantText"):
+                            session.add_assistant_message(turn["assistantText"])
+                elif control.get("type") == "new_session":
+                    session = ConversationSession()
+                continue
+            else:
+                continue
 
             try:
                 transcript = transcribe_audio(groq_client, audio_bytes)

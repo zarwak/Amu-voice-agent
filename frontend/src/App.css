@@ -61,13 +61,43 @@ body {
   max-height: 640px;
 }
 
+.transcript-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
 .transcript-card h2 {
-  margin: 0 0 1rem;
+  margin: 0;
   font-size: 0.85rem;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
+}
+
+.new-session-btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.new-session-btn:hover:not(:disabled) {
+  background: var(--accent-pink);
+  border-color: var(--accent-pink);
+  color: #fff;
+}
+
+.new-session-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .app-header h1 {

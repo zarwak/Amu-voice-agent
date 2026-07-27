@@ -66,5 +66,12 @@ export function useVoiceSocket(wsUrl, handlers) {
     }
   }, []);
 
-  return { status, sendAudio };
+  const sendJson = useCallback((obj) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(obj));
+    }
+  }, []);
+
+  return { status, sendAudio, sendJson };
 }

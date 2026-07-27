@@ -7,17 +7,35 @@ import { TranscriptPanel } from "./components/TranscriptPanel";
 import "./App.css";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
+const STORAGE_KEY = "amu-conversation-history";
 
 let turnIdCounter = 0;
+
+function loadStoredHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    const maxId = parsed.reduce(
+      (max, t) => (typeof t?.id === "number" && t.id > max ? t.id : max),
+      -1
+    );
+    turnIdCounter = maxId + 1;
+    return parsed;
+  } catch {
+    return [];
+  }
+}
 
 export default function App() {
   const [uiState, setUiState] = useState("idle");
   const [micEnabled, setMicEnabled] = useState(true);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(loadStoredHistory);
   const [currentTurn, setCurrentTurn] = useState(null);
   const [banner, setBanner] = useState(null);
   const levelRef = useRef(0);
   const pendingTurnRef = useRef(null);
+  const rehydratedRef = useRef(false);
 
   const { playChunk } = useAudioPlayer();
 
@@ -60,7 +78,7 @@ export default function App() {
     setTimeout(() => setBanner(null), 4000);
   }, []);
 
-  const { status, sendAudio } = useVoiceSocket(WS_URL, {
+  const { status, sendAudio, sendJson } = useVoiceSocket(WS_URL, {
     onUserTranscript: handleUserTranscript,
     onAssistantText: handleAssistantText,
     onAudioChunk: handleAudioChunk,
@@ -77,6 +95,31 @@ export default function App() {
       setUiState("off");
     }
   }, [status, micEnabled, uiState]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  }, [history]);
+
+  useEffect(() => {
+    if (status === "open" && !rehydratedRef.current) {
+      rehydratedRef.current = true;
+      if (history.length > 0) {
+        sendJson({
+          type: "rehydrate",
+          turns: history.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
+        });
+      }
+    } else if (status !== "open") {
+      rehydratedRef.current = false;
+    }
+  }, [status, history, sendJson]);
+
+  const handleNewSession = useCallback(() => {
+    pendingTurnRef.current = null;
+    setCurrentTurn(null);
+    setHistory([]);
+    sendJson({ type: "new_session" });
+  }, [sendJson]);
 
   useEffect(() => {
     function handleKeyDown(e) {
@@ -143,7 +186,17 @@ export default function App() {
         </div>
 
         <div className="transcript-card">
-          <h2>Transcript</h2>
+          <div className="transcript-card-header">
+            <h2>Transcript</h2>
+            <button
+              type="button"
+              className="new-session-btn"
+              onClick={handleNewSession}
+              disabled={transcriptTurns.length === 0}
+            >
+              New Session
+            </button>
+          </div>
           <TranscriptPanel turns={transcriptTurns} />
         </div>
       </div>
