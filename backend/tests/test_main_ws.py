@@ -48,3 +48,29 @@ def test_websocket_tts_error_degrades_to_text_only():
             assert ws.receive_json() == {"type": "user_transcript", "text": "hello"}
             assert ws.receive_json() == {"type": "assistant_text", "text": "hi"}
             assert ws.receive_json() == {"type": "turn_complete"}
+
+
+def test_websocket_stt_error_sends_error_message():
+    with patch("main.transcribe_audio", side_effect=Exception("boom")):
+        client = TestClient(app)
+        with client.websocket_connect("/ws") as ws:
+            ws.send_bytes(b"fake-audio")
+            error_msg = ws.receive_json()
+            assert error_msg["type"] == "error"
+
+
+def test_websocket_survives_stt_error_and_accepts_next_message():
+    with patch("main.transcribe_audio", side_effect=[Exception("boom"), "hello again"]), \
+         patch("main.generate_reply", return_value="hi again"), \
+         patch("main.synthesize_speech", return_value=b"AUDIO"):
+        client = TestClient(app)
+        with client.websocket_connect("/ws") as ws:
+            ws.send_bytes(b"first-audio")
+            error_msg = ws.receive_json()
+            assert error_msg["type"] == "error"
+
+            ws.send_bytes(b"second-audio")
+            assert ws.receive_json() == {"type": "user_transcript", "text": "hello again"}
+            assert ws.receive_json() == {"type": "assistant_text", "text": "hi again"}
+            assert ws.receive_bytes() == b"AUDIO"
+            assert ws.receive_json() == {"type": "turn_complete"}

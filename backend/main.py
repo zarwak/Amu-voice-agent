@@ -45,7 +45,15 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             audio_bytes = await websocket.receive_bytes()
 
-            transcript = transcribe_audio(groq_client, audio_bytes)
+            try:
+                transcript = transcribe_audio(groq_client, audio_bytes)
+            except Exception:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "The assistant had trouble hearing that. Please try again.",
+                })
+                continue
+
             if not transcript:
                 await websocket.send_json({"type": "no_speech"})
                 continue
