@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 
 const COLORS = {
-  idle: "#9ca3af",
-  listening: "#38bdf8",
-  thinking: "#a78bfa",
-  speaking: "#34d399",
+  idle: "#e8d5c4",
+  listening: "#f2a6c6",
+  thinking: "#d98cae",
+  speaking: "#f4b79a",
 };
 
 export function VoiceIndicator({ state, levelRef }) {

@@ -86,30 +86,37 @@ export default function App() {
     levelRef.current = rms;
   }, []);
 
-  const { micState, error: micError } = useAudioCapture({
+  const { error: micError } = useAudioCapture({
     enabled: status === "open",
     onUtteranceReady: handleUtteranceReady,
     onLevel: handleLevel,
   });
 
-  const [debugLevel, setDebugLevel] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setDebugLevel(levelRef.current), 150);
-    return () => clearInterval(id);
-  }, []);
+  const stateLabel = {
+    idle: "Getting ready…",
+    listening: "Listening…",
+    thinking: "Thinking…",
+    speaking: "Speaking…",
+  }[uiState];
 
   return (
     <div className="app">
-      <h1>Voice Agent</h1>
-      {status !== "open" && <p className="status-banner">Connection: {status}</p>}
-      {micError && <p className="status-banner error">Microphone error: {micError}</p>}
-      {banner && <p className="status-banner error">{banner}</p>}
-      <p className="status-banner">
-        DEBUG — ws: {status} | ui: {uiState} | mic: {micState} | level: {debugLevel.toFixed(3)}
-      </p>
-      <VoiceIndicator state={uiState} levelRef={levelRef} />
-      <CaptionPanel userText={userText} assistantText={assistantText} />
-      <HistoryPanel turns={history} />
+      <div className="card">
+        <header className="app-header">
+          <h1>Voice Agent</h1>
+          <p className="subtitle">Talk, and I'll talk back.</p>
+        </header>
+
+        {status !== "open" && <p className="status-banner">Connection: {status}</p>}
+        {micError && <p className="status-banner error">Microphone error: {micError}</p>}
+        {banner && <p className="status-banner error">{banner}</p>}
+
+        <VoiceIndicator state={uiState} levelRef={levelRef} />
+        <p className="state-label">{stateLabel}</p>
+
+        <CaptionPanel userText={userText} assistantText={assistantText} />
+        <HistoryPanel turns={history} />
+      </div>
     </div>
   );
 }
