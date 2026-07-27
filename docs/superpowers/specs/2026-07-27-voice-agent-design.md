@@ -14,7 +14,7 @@ Tool calling (web search, calculator, etc.) is explicitly **out of scope for v1*
 - User can interrupt the agent while it's speaking (barge-in) and it stops immediately and listens.
 - Live captions show both what the user said and what the agent is saying, in real time.
 - A scrollable panel shows the full conversation history for the session.
-- Runs locally (`localhost`) for this phase — no deployment/hosting concerns.
+- Deployed and reachable at a public URL: React/Vite frontend on Vercel, FastAPI backend on Railway.
 
 ## Non-Goals (v1)
 
@@ -27,29 +27,31 @@ Tool calling (web search, calculator, etc.) is explicitly **out of scope for v1*
 
 ## Architecture
 
-FastAPI backend + a plain HTML/JS/CSS frontend (no frontend build tooling), connected over a single persistent WebSocket per session.
+A React (Vite) frontend and a FastAPI backend, deployed separately and connected over a single persistent WebSocket per session.
 
 ```
-Browser                              FastAPI Backend
+Browser (Vercel)                     FastAPI Backend (Railway)
 ┌─────────────────────┐              ┌──────────────────────┐
 │ mic capture (VAD)    │──audio blob→│  /ws  session handler │
-│ waveform canvas      │              │   ├─ Groq Whisper (STT)│
+│ waveform canvas      │   wss://    │   ├─ Groq Whisper (STT)│
 │ caption/history panel│←─text/audio──│   ├─ Groq LLM (stream) │
 │ audio playback queue │   chunks     │   └─ ElevenLabs (TTS)  │
 └─────────────────────┘              └──────────────────────┘
 ```
 
-### Frontend components
+### Frontend components (React + Vite)
 
-- `audio-capture.js` — mic stream + client-side VAD (energy/silence threshold) that decides when an utterance starts/ends.
-- `ws-client.js` — owns the WebSocket; sends audio blobs and barge-in signals; dispatches incoming messages by type.
-- `ui-state.js` — visible state machine (`idle → listening → thinking → speaking`) driving the waveform/orb visual and caption panel.
-- `audio-player.js` — queues and plays incoming TTS audio chunks in `seq` order; can be stopped instantly for barge-in.
-- `index.html` / `style.css` — layout: state indicator + waveform at top, live captions in the middle, scrollable history panel below.
+- `hooks/useAudioCapture.js` — mic stream + client-side VAD (energy/silence threshold) that decides when an utterance starts/ends.
+- `hooks/useVoiceSocket.js` — owns the WebSocket connection; sends audio blobs and barge-in signals; dispatches incoming messages by type into React state.
+- `hooks/useAudioPlayer.js` — queues and plays incoming TTS audio chunks in `seq` order; can be stopped instantly for barge-in.
+- `components/VoiceIndicator.jsx` — the state visual (`idle → listening → thinking → speaking`) with the reactive waveform.
+- `components/CaptionPanel.jsx` — live captions for both the user's and agent's turns.
+- `components/HistoryPanel.jsx` — scrollable full conversation log.
+- `App.jsx` — wires the hooks together and holds top-level conversation state.
 
 ### Backend components
 
-- `main.py` — FastAPI app; serves the static frontend and the `/ws` WebSocket route.
+- `main.py` — FastAPI app; exposes the `/ws` WebSocket route (the frontend is a separately deployed static app, not served by FastAPI).
 - `session.py` — per-connection conversation state: message history for the LLM, and a cancellation handle for the current in-flight turn.
 - `stt.py` — thin wrapper around Groq's Whisper endpoint (send full audio blob, get transcript back — this is a batch/REST call, not a streaming socket).
 - `llm.py` — wrapper around Groq's chat completion API with `stream=True`, yielding tokens as they arrive.
@@ -58,9 +60,17 @@ Browser                              FastAPI Backend
 
 ### Config
 
-- `.env` holds `GROQ_API_KEY` and `ELEVENLABS_API_KEY` (neither exists yet — implementation plan must include steps to obtain both; both providers have free tiers).
+- Backend `.env` (local) / Railway environment variables (deployed): `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, `CORS_ORIGINS` (the Vercel frontend URL) — none of these exist yet; implementation plan must include steps to obtain the two API keys (both providers have free tiers).
 - `requirements.txt`: `fastapi`, `uvicorn[standard]`, `python-dotenv`, `groq`, `elevenlabs`, plus test deps (`pytest`, `pytest-asyncio`).
-- Runs via `uvicorn main:app --reload`; browser mic access (`getUserMedia`) works without HTTPS on `localhost`.
+- Frontend `.env` (local) / Vercel environment variable (deployed): `VITE_WS_URL` — the backend's WebSocket URL (`ws://localhost:8000/ws` locally, `wss://<railway-app>.up.railway.app/ws` in production).
+- Local dev: backend via `uvicorn main:app --reload`, frontend via `vite dev`; browser mic access (`getUserMedia`) works without HTTPS on `localhost`. In production both Vercel and Railway serve over HTTPS/WSS by default, which `getUserMedia` also requires.
+
+## Deployment
+
+- **Frontend → Vercel:** standard Vite/React static build, deployed via Vercel's GitHub integration (push to `main` → auto-deploy). `VITE_WS_URL` set as a Vercel project environment variable.
+- **Backend → Railway:** deployed via Railway's GitHub integration, which detects the Python app and runs it (`uvicorn main:app --host 0.0.0.0 --port $PORT`). `GROQ_API_KEY`, `ELEVENLABS_API_KEY`, and `CORS_ORIGINS` set as Railway environment variables.
+- **Cross-origin:** since the frontend and backend live on different domains, the FastAPI app needs CORS configured (allow the Vercel origin) and the frontend connects to the backend's `wss://` WebSocket URL directly rather than a relative path.
+- Local development continues to run both pieces on `localhost` (frontend on Vite's dev server, e.g. port 5173; backend on port 8000) — deployment doesn't change the day-to-day dev loop, only where the built app ends up.
 
 ## Data Flow — One Conversation Turn
 
@@ -71,7 +81,7 @@ Browser                              FastAPI Backend
 5. **Response generation** — backend calls the Groq LLM with streaming enabled, passing conversation history + the new message. As tokens arrive, they're fed through `sentence_chunker`. Each time a full sentence is ready:
    - it's sent to the browser as `{type: "assistant_text_delta"}` (captions update before audio exists)
    - it's sent to ElevenLabs for synthesis; resulting audio bytes are streamed to the browser as `{type: "audio_chunk", seq}`
-6. **Playback** — on the first audio chunk, UI flips to "speaking"; `audio-player.js` plays chunks back-to-back in `seq` order, so playback starts well before the full reply has finished generating.
+6. **Playback** — on the first audio chunk, UI flips to "speaking"; `useAudioPlayer` plays chunks back-to-back in `seq` order, so playback starts well before the full reply has finished generating.
 7. **Turn complete** — backend sends `{type: "turn_complete"}` once the LLM stream ends and the last audio chunk is flushed; UI returns to "listening" and VAD re-arms.
 8. **Barge-in** (can happen any time during step 6) — if VAD detects the user talking while state is "speaking", the browser immediately stops audio playback, clears its playback queue, sends `{type: "barge_in"}`, and starts recording the new utterance. The backend cancels any in-flight LLM/TTS work for the interrupted turn.
 
