@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SILENCE_THRESHOLD = 0.02;
+const DEFAULT_SILENCE_THRESHOLD = 0.02;
 const SILENCE_DURATION_MS = 700;
 const MIN_SPEECH_MS = 300;
 
-export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
+export function useAudioCapture({
+  enabled,
+  onUtteranceReady,
+  onLevel,
+  silenceThreshold = DEFAULT_SILENCE_THRESHOLD,
+}) {
   const [micState, setMicState] = useState("idle");
   const [error, setError] = useState(null);
 
@@ -15,6 +20,8 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
   const speechStartRef = useRef(null);
   const silenceStartRef = useRef(null);
   const rafRef = useRef(null);
+  const thresholdRef = useRef(silenceThreshold);
+  thresholdRef.current = silenceThreshold;
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -30,20 +37,11 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
         }
         streamRef.current = stream;
 
-        const track = stream.getAudioTracks()[0];
-        console.log("[useAudioCapture] audio track:", {
-          label: track?.label,
-          enabled: track?.enabled,
-          muted: track?.muted,
-          readyState: track?.readyState,
-        });
-
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
         if (audioContext.state === "suspended") {
           await audioContext.resume();
         }
-        console.log("[useAudioCapture] AudioContext state:", audioContext.state);
         const source = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 2048;
@@ -76,7 +74,6 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
           recorderRef.current = null;
         }
 
-        let frameCount = 0;
         const tick = () => {
           analyser.getByteTimeDomainData(dataArray);
           let sumSquares = 0;
@@ -86,17 +83,10 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
           }
           const rms = Math.sqrt(sumSquares / dataArray.length);
           onLevel?.(rms);
-          frameCount += 1;
-          if (frameCount % 60 === 0) {
-            console.log(
-              "[useAudioCapture] tick #" + frameCount,
-              "rms:", rms.toFixed(4),
-              "sample bytes:", Array.from(dataArray.slice(0, 5))
-            );
-          }
           const now = performance.now();
+          const threshold = thresholdRef.current;
 
-          if (rms > SILENCE_THRESHOLD) {
+          if (rms > threshold) {
             silenceStartRef.current = null;
             if (!speechStartRef.current) {
               speechStartRef.current = now;

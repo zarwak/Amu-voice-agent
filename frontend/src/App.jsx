@@ -5,11 +5,17 @@ import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { VoiceIndicator } from "./components/VoiceIndicator";
 import { TranscriptPanel } from "./components/TranscriptPanel";
 import { SessionsSidebar } from "./components/SessionsSidebar";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { darken, withAlpha, sensitivityToThreshold } from "./utils/color";
 import "./App.css";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
 const STORAGE_KEY = "amu-conversation-history";
 const SESSIONS_STORAGE_KEY = "amu-past-sessions";
+const ACCENT_STORAGE_KEY = "amu-accent-color";
+const SENSITIVITY_STORAGE_KEY = "amu-mic-sensitivity";
+const DEFAULT_ACCENT = "#f2a6c6";
+const DEFAULT_SENSITIVITY = 5;
 
 let turnIdCounter = 0;
 
@@ -48,6 +54,15 @@ function makeSessionFromTurns(turns) {
   };
 }
 
+function loadStoredAccent() {
+  return localStorage.getItem(ACCENT_STORAGE_KEY) || DEFAULT_ACCENT;
+}
+
+function loadStoredSensitivity() {
+  const raw = Number(localStorage.getItem(SENSITIVITY_STORAGE_KEY));
+  return raw >= 1 && raw <= 10 ? raw : DEFAULT_SENSITIVITY;
+}
+
 export default function App() {
   const [uiState, setUiState] = useState("idle");
   const [micEnabled, setMicEnabled] = useState(true);
@@ -55,6 +70,9 @@ export default function App() {
   const [pastSessions, setPastSessions] = useState(loadStoredSessions);
   const [currentTurn, setCurrentTurn] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accentColor, setAccentColor] = useState(loadStoredAccent);
+  const [sensitivity, setSensitivity] = useState(loadStoredSensitivity);
   const levelRef = useRef(0);
   const pendingTurnRef = useRef(null);
   const rehydratedRef = useRef(false);
@@ -127,6 +145,17 @@ export default function App() {
   }, [pastSessions]);
 
   useEffect(() => {
+    document.documentElement.style.setProperty("--accent-pink", accentColor);
+    document.documentElement.style.setProperty("--accent-pink-deep", darken(accentColor, 0.18));
+    document.documentElement.style.setProperty("--accent-glow", withAlpha(accentColor, 0.55));
+    localStorage.setItem(ACCENT_STORAGE_KEY, accentColor);
+  }, [accentColor]);
+
+  useEffect(() => {
+    localStorage.setItem(SENSITIVITY_STORAGE_KEY, String(sensitivity));
+  }, [sensitivity]);
+
+  useEffect(() => {
     if (status === "open" && !rehydratedRef.current) {
       rehydratedRef.current = true;
       if (history.length > 0) {
@@ -178,6 +207,16 @@ export default function App() {
     [history, pastSessions, sendJson]
   );
 
+  const handleRenameSession = useCallback((sessionId, newTitle) => {
+    setPastSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
+    );
+  }, []);
+
+  const handleDeleteSession = useCallback((sessionId) => {
+    setPastSessions((prev) => prev.filter((s) => s.id !== sessionId));
+  }, []);
+
   useEffect(() => {
     function handleKeyDown(e) {
       if (e.code === "Space" && !e.repeat) {
@@ -204,6 +243,7 @@ export default function App() {
     enabled: status === "open" && micEnabled,
     onUtteranceReady: handleUtteranceReady,
     onLevel: handleLevel,
+    silenceThreshold: sensitivityToThreshold(sensitivity),
   });
 
   const stateLabel = {
@@ -223,10 +263,20 @@ export default function App() {
           sessions={pastSessions}
           onNewSession={handleNewSession}
           onSelectSession={handleSelectSession}
+          onRenameSession={handleRenameSession}
+          onDeleteSession={handleDeleteSession}
         />
 
         <div className="voice-card">
           <header className="app-header">
+            <button
+              type="button"
+              className="icon-btn settings-toggle"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open settings"
+            >
+              ⚙
+            </button>
             <h1>AMU</h1>
             <p className="subtitle">Your voice assistant</p>
           </header>
@@ -235,7 +285,7 @@ export default function App() {
           {micError && <p className="status-banner error">Microphone error: {micError}</p>}
           {banner && <p className="status-banner error">{banner}</p>}
 
-          <VoiceIndicator state={uiState} levelRef={levelRef} />
+          <VoiceIndicator state={uiState} levelRef={levelRef} accentColor={accentColor} />
           <p className="state-label">
             {stateLabel}
             {uiState === "thinking" && (
@@ -253,6 +303,15 @@ export default function App() {
           <TranscriptPanel turns={transcriptTurns} />
         </div>
       </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        accentColor={accentColor}
+        onAccentColorChange={setAccentColor}
+        sensitivity={sensitivity}
+        onSensitivityChange={setSensitivity}
+      />
     </div>
   );
 }

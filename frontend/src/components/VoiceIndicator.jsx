@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
 
-const COLORS = {
+const FIXED_COLORS = {
   idle: "#e8d5c4",
   off: "#d9c7b8",
-  listening: "#f2a6c6",
   thinking: "#d98cae",
   speaking: "#f4b79a",
 };
@@ -13,8 +12,10 @@ const BAR_WIDTH = 14;
 const BAR_GAP = 10;
 const VARIATION = [0.55, 0.85, 1, 0.7, 1, 0.8, 0.6];
 
-export function VoiceIndicator({ state, levelRef }) {
+export function VoiceIndicator({ state, levelRef, accentColor = "#f2a6c6" }) {
   const canvasRef = useRef(null);
+  const accentRef = useRef(accentColor);
+  accentRef.current = accentColor;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -30,6 +31,7 @@ export function VoiceIndicator({ state, levelRef }) {
       const maxExtra = height / 2 - baseline;
       const totalWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
       const startX = (width - totalWidth) / 2;
+      const fillColor = state === "listening" ? accentRef.current : FIXED_COLORS[state] || FIXED_COLORS.idle;
 
       if (state === "thinking") phase += 0.12;
       if (state === "speaking") phase += 0.25;
@@ -48,7 +50,7 @@ export function VoiceIndicator({ state, levelRef }) {
         const y = midY - barHeight / 2;
         const radius = BAR_WIDTH / 2;
 
-        ctx.fillStyle = COLORS[state] || COLORS.idle;
+        ctx.fillStyle = fillColor;
         ctx.beginPath();
         if (ctx.roundRect) {
           ctx.roundRect(x, y, BAR_WIDTH, barHeight, radius);

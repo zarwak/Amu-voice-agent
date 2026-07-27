@@ -5,6 +5,7 @@
   --text-secondary: #9c8a7d;
   --accent-pink: #f2a6c6;
   --accent-pink-deep: #e88bb0;
+  --accent-glow: rgba(242, 166, 198, 0.55);
   --border: #f0e4d4;
   --error-bg: #fbdcdc;
   --error-text: #a24444;
@@ -128,7 +129,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
+  gap: 0.3rem;
   width: 100%;
   text-align: left;
   background: var(--bg);
@@ -154,9 +155,44 @@ body {
   max-width: 100%;
 }
 
+.session-title-input {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  width: 100%;
+  border: 1px solid var(--accent-pink);
+  border-radius: 6px;
+  padding: 0.1rem 0.35rem;
+  font-family: inherit;
+  background: var(--card-bg);
+}
+
+.session-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
 .session-meta {
   font-size: 0.7rem;
   color: var(--text-secondary);
+}
+
+.session-actions {
+  display: flex;
+  gap: 0.15rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.session-item:hover .session-actions {
+  opacity: 1;
+}
+
+.session-actions .icon-btn {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.3rem;
 }
 
 .new-session-btn {
@@ -182,6 +218,10 @@ body {
   cursor: default;
 }
 
+.app-header {
+  position: relative;
+}
+
 .app-header h1 {
   margin: 0;
   font-size: 1.85rem;
@@ -191,6 +231,110 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.settings-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 1.15rem;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 59, 53, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.settings-modal {
+  background: var(--card-bg);
+  border-radius: 20px;
+  box-shadow: 0 30px 60px -20px rgba(74, 59, 53, 0.4);
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 380px;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.settings-modal-header .icon-btn {
+  font-size: 1.4rem;
+}
+
+.settings-field {
+  margin-bottom: 1.25rem;
+}
+
+.settings-field:last-child {
+  margin-bottom: 0;
+}
+
+.settings-field label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.settings-color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-color-row input[type="color"] {
+  width: 44px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+}
+
+.settings-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent-pink-deep);
+}
+
+.settings-hint {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  margin: 0.35rem 0 0;
 }
 
 .subtitle {
@@ -218,7 +362,7 @@ body {
 .voice-indicator {
   display: block;
   margin: 1rem auto 0.5rem;
-  filter: drop-shadow(0 0 24px rgba(242, 166, 198, 0.55));
+  filter: drop-shadow(0 0 24px var(--accent-glow));
 }
 
 .state-label {
