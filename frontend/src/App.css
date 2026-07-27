@@ -29,14 +29,44 @@ body {
   color: var(--text-primary);
 }
 
-.card {
+.shell {
   width: 100%;
-  max-width: 480px;
+  max-width: 900px;
+  display: flex;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.voice-card,
+.transcript-card {
   background: var(--card-bg);
   border-radius: 24px;
   box-shadow: 0 20px 50px -20px rgba(180, 140, 120, 0.35);
+}
+
+.voice-card {
+  flex: 0 0 320px;
   padding: 2.5rem 2rem;
   text-align: center;
+}
+
+.transcript-card {
+  flex: 1;
+  min-width: 0;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  max-height: 640px;
+}
+
+.transcript-card h2 {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .app-header h1 {
@@ -74,53 +104,68 @@ body {
 }
 
 .state-label {
-  margin: 0 0 1.5rem;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.02em;
 }
 
-.caption-panel {
-  min-height: 3.5rem;
-  margin-bottom: 1.5rem;
-  padding: 0.75rem 1rem;
-  background: var(--bg);
-  border-radius: 14px;
-  text-align: left;
+.transcript-empty {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: auto;
+  text-align: center;
 }
 
-.caption-user {
+.transcript-panel {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.transcript-turn {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.transcript-turn:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.transcript-turn.is-current {
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 0.75rem 1rem;
+  border-bottom: none;
+}
+
+.transcript-user {
   color: var(--text-secondary);
-  margin: 0.25rem 0;
+  margin: 0 0 0.25rem;
   font-size: 0.9rem;
 }
 
-.caption-assistant {
+.transcript-assistant {
   color: var(--accent-pink-deep);
   font-weight: 600;
-  margin: 0.25rem 0;
-}
-
-.history-panel {
-  text-align: left;
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.history-turn {
-  margin-bottom: 0.9rem;
-  font-size: 0.85rem;
-}
-
-.history-user {
-  color: var(--text-secondary);
-  margin: 0 0 0.15rem;
-}
-
-.history-assistant {
-  color: var(--text-primary);
   margin: 0;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .voice-card {
+    flex: none;
+  }
+
+  .transcript-card {
+    min-height: 320px;
+    max-height: 400px;
+  }
 }

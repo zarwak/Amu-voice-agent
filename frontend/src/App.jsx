@@ -3,8 +3,7 @@ import { useAudioCapture } from "./hooks/useAudioCapture";
 import { useVoiceSocket } from "./hooks/useVoiceSocket";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { VoiceIndicator } from "./components/VoiceIndicator";
-import { CaptionPanel } from "./components/CaptionPanel";
-import { HistoryPanel } from "./components/HistoryPanel";
+import { TranscriptPanel } from "./components/TranscriptPanel";
 import "./App.css";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
@@ -14,9 +13,8 @@ let turnIdCounter = 0;
 export default function App() {
   const [uiState, setUiState] = useState("idle");
   const [micEnabled, setMicEnabled] = useState(true);
-  const [userText, setUserText] = useState("");
-  const [assistantText, setAssistantText] = useState("");
   const [history, setHistory] = useState([]);
+  const [currentTurn, setCurrentTurn] = useState(null);
   const [banner, setBanner] = useState(null);
   const levelRef = useRef(0);
   const pendingTurnRef = useRef(null);
@@ -24,15 +22,15 @@ export default function App() {
   const { playChunk } = useAudioPlayer();
 
   const handleUserTranscript = useCallback((text) => {
-    setUserText(text);
-    setAssistantText("");
-    pendingTurnRef.current = { id: turnIdCounter++, userText: text, assistantText: "" };
+    const turn = { id: turnIdCounter++, userText: text, assistantText: "" };
+    pendingTurnRef.current = turn;
+    setCurrentTurn(turn);
     setUiState("thinking");
   }, []);
 
   const handleAssistantText = useCallback((text) => {
-    setAssistantText(text);
     if (pendingTurnRef.current) pendingTurnRef.current.assistantText = text;
+    setCurrentTurn((prev) => (prev ? { ...prev, assistantText: text } : prev));
   }, []);
 
   const handleAudioChunk = useCallback(
@@ -52,6 +50,7 @@ export default function App() {
       setHistory((prev) => [...prev, pendingTurnRef.current]);
       pendingTurnRef.current = null;
     }
+    setCurrentTurn(null);
     setUiState("listening");
   }, []);
 
@@ -115,23 +114,29 @@ export default function App() {
     speaking: "Speaking…",
   }[uiState];
 
+  const transcriptTurns = [...history, ...(currentTurn ? [currentTurn] : [])];
+
   return (
     <div className="app">
-      <div className="card">
-        <header className="app-header">
-          <h1>Voice Agent</h1>
-          <p className="subtitle">Talk, and I'll talk back.</p>
-        </header>
+      <div className="shell">
+        <div className="voice-card">
+          <header className="app-header">
+            <h1>AMU</h1>
+            <p className="subtitle">Your voice assistant</p>
+          </header>
 
-        {status !== "open" && <p className="status-banner">Connection: {status}</p>}
-        {micError && <p className="status-banner error">Microphone error: {micError}</p>}
-        {banner && <p className="status-banner error">{banner}</p>}
+          {status !== "open" && <p className="status-banner">Connection: {status}</p>}
+          {micError && <p className="status-banner error">Microphone error: {micError}</p>}
+          {banner && <p className="status-banner error">{banner}</p>}
 
-        <VoiceIndicator state={uiState} levelRef={levelRef} />
-        <p className="state-label">{stateLabel}</p>
+          <VoiceIndicator state={uiState} levelRef={levelRef} />
+          <p className="state-label">{stateLabel}</p>
+        </div>
 
-        <CaptionPanel userText={userText} assistantText={assistantText} />
-        <HistoryPanel turns={history} />
+        <div className="transcript-card">
+          <h2>Transcript</h2>
+          <TranscriptPanel turns={transcriptTurns} />
+        </div>
       </div>
     </div>
   );
