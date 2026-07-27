@@ -24,12 +24,13 @@ function loadStoredHistory() {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
-    const maxId = parsed.reduce(
+    const clean = parsed.filter(Boolean);
+    const maxId = clean.reduce(
       (max, t) => (typeof t?.id === "number" && t.id > max ? t.id : max),
       -1
     );
     turnIdCounter = maxId + 1;
-    return parsed;
+    return clean;
   } catch {
     return [];
   }
@@ -39,17 +40,21 @@ function loadStoredSessions() {
   try {
     const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(Boolean)
+      .map((s) => ({ ...s, turns: Array.isArray(s.turns) ? s.turns.filter(Boolean) : [] }));
   } catch {
     return [];
   }
 }
 
 function makeSessionFromTurns(turns) {
+  const clean = turns.filter(Boolean);
   return {
     id: `session-${Date.now()}`,
-    title: turns[0]?.userText?.slice(0, 50) || "Conversation",
-    turns,
+    title: clean[0]?.userText?.slice(0, 50) || "Conversation",
+    turns: clean,
     updatedAt: Date.now(),
   };
 }
@@ -137,7 +142,7 @@ export default function App() {
   }, [status, micEnabled, uiState]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.filter(Boolean)));
   }, [history]);
 
   useEffect(() => {
@@ -158,10 +163,11 @@ export default function App() {
   useEffect(() => {
     if (status === "open" && !rehydratedRef.current) {
       rehydratedRef.current = true;
-      if (history.length > 0) {
+      const cleanHistory = history.filter(Boolean);
+      if (cleanHistory.length > 0) {
         sendJson({
           type: "rehydrate",
-          turns: history.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
+          turns: cleanHistory.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
         });
       }
     } else if (status !== "open") {
@@ -191,14 +197,15 @@ export default function App() {
           : withoutTarget;
       });
 
+      const cleanTarget = target.turns.filter(Boolean);
       pendingTurnRef.current = null;
       setCurrentTurn(null);
-      setHistory(target.turns);
+      setHistory(cleanTarget);
 
       sendJson({ type: "new_session" });
       sendJson({
         type: "rehydrate",
-        turns: target.turns.map((t) => ({
+        turns: cleanTarget.map((t) => ({
           userText: t.userText,
           assistantText: t.assistantText,
         })),
