@@ -82,12 +82,14 @@ export default function App() {
     [sendAudio]
   );
 
+  const handleLevel = useCallback((rms) => {
+    levelRef.current = rms;
+  }, []);
+
   const { error: micError } = useAudioCapture({
     enabled: status === "open",
     onUtteranceReady: handleUtteranceReady,
-    onLevel: (rms) => {
-      levelRef.current = rms;
-    },
+    onLevel: handleLevel,
   });
 
   return (

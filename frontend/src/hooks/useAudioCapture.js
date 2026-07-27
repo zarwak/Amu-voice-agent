@@ -119,9 +119,10 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
-      if (audioContextRef.current) {
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close();
       }
+      audioContextRef.current = null;
       setMicState("idle");
     };
   }, [enabled, onUtteranceReady, onLevel]);
