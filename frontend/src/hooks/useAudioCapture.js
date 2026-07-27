@@ -32,6 +32,10 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
 
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
+        console.log("[useAudioCapture] AudioContext state:", audioContext.state);
         const source = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 2048;
