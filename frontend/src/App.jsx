@@ -86,11 +86,17 @@ export default function App() {
     levelRef.current = rms;
   }, []);
 
-  const { error: micError } = useAudioCapture({
+  const { micState, error: micError } = useAudioCapture({
     enabled: status === "open",
     onUtteranceReady: handleUtteranceReady,
     onLevel: handleLevel,
   });
+
+  const [debugLevel, setDebugLevel] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setDebugLevel(levelRef.current), 150);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div className="app">
@@ -98,6 +104,9 @@ export default function App() {
       {status !== "open" && <p className="status-banner">Connection: {status}</p>}
       {micError && <p className="status-banner error">Microphone error: {micError}</p>}
       {banner && <p className="status-banner error">{banner}</p>}
+      <p className="status-banner">
+        DEBUG — ws: {status} | ui: {uiState} | mic: {micState} | level: {debugLevel.toFixed(3)}
+      </p>
       <VoiceIndicator state={uiState} levelRef={levelRef} />
       <CaptionPanel userText={userText} assistantText={assistantText} />
       <HistoryPanel turns={history} />
