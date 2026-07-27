@@ -271,7 +271,7 @@ export default function App() {
     speaking: "Speaking…",
   }[uiState];
 
-  const transcriptTurns = [...history, ...(currentTurn ? [currentTurn] : [])];
+  const transcriptTurns = [...history, ...(currentTurn ? [currentTurn] : [])].filter(Boolean);
 
   const currentSession =
     transcriptTurns.length > 0
