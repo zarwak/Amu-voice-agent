@@ -29,7 +29,7 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY") or "placeholder-key-for-loc
 elevenlabs_client = ElevenLabs(
     api_key=os.getenv("ELEVENLABS_API_KEY") or "placeholder-key-for-local-dev"
 )
-VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
 
 
 @app.get("/health")
