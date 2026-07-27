@@ -13,6 +13,7 @@ let turnIdCounter = 0;
 
 export default function App() {
   const [uiState, setUiState] = useState("idle");
+  const [micEnabled, setMicEnabled] = useState(true);
   const [userText, setUserText] = useState("");
   const [assistantText, setAssistantText] = useState("");
   const [history, setHistory] = useState([]);
@@ -70,10 +71,24 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (status === "open" && uiState === "idle") {
+    if (status !== "open") return;
+    if (micEnabled && (uiState === "idle" || uiState === "off")) {
       setUiState("listening");
+    } else if (!micEnabled && uiState === "listening") {
+      setUiState("off");
     }
-  }, [status, uiState]);
+  }, [status, micEnabled, uiState]);
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.code === "Space" && !e.repeat) {
+        e.preventDefault();
+        setMicEnabled((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleUtteranceReady = useCallback(
     (blob) => {
@@ -87,14 +102,15 @@ export default function App() {
   }, []);
 
   const { error: micError } = useAudioCapture({
-    enabled: status === "open",
+    enabled: status === "open" && micEnabled,
     onUtteranceReady: handleUtteranceReady,
     onLevel: handleLevel,
   });
 
   const stateLabel = {
     idle: "Getting ready…",
-    listening: "Listening…",
+    off: "Paused — press Space to listen",
+    listening: "Listening… (Space to pause)",
     thinking: "Thinking…",
     speaking: "Speaking…",
   }[uiState];

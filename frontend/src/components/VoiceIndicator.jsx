@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 const COLORS = {
   idle: "#e8d5c4",
+  off: "#d9c7b8",
   listening: "#f2a6c6",
   thinking: "#d98cae",
   speaking: "#f4b79a",
