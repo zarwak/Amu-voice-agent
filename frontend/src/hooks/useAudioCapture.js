@@ -30,6 +30,14 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
         }
         streamRef.current = stream;
 
+        const track = stream.getAudioTracks()[0];
+        console.log("[useAudioCapture] audio track:", {
+          label: track?.label,
+          enabled: track?.enabled,
+          muted: track?.muted,
+          readyState: track?.readyState,
+        });
+
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
         if (audioContext.state === "suspended") {
@@ -68,6 +76,7 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
           recorderRef.current = null;
         }
 
+        let frameCount = 0;
         const tick = () => {
           analyser.getByteTimeDomainData(dataArray);
           let sumSquares = 0;
@@ -77,6 +86,14 @@ export function useAudioCapture({ enabled, onUtteranceReady, onLevel }) {
           }
           const rms = Math.sqrt(sumSquares / dataArray.length);
           onLevel?.(rms);
+          frameCount += 1;
+          if (frameCount % 60 === 0) {
+            console.log(
+              "[useAudioCapture] tick #" + frameCount,
+              "rms:", rms.toFixed(4),
+              "sample bytes:", Array.from(dataArray.slice(0, 5))
+            );
+          }
           const now = performance.now();
 
           if (rms > SILENCE_THRESHOLD) {
