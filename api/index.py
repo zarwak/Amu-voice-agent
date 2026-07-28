@@ -1,6 +1,13 @@
 import base64
 import json
 import os
+import sys
+
+# This file's own directory isn't guaranteed to be on sys.path -- locally we run
+# uvicorn with --app-dir api, but a serverless runtime imports the handler
+# differently. Without this, the sibling `_*` imports below fail at import time
+# and the whole function dies with an invocation error.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
