@@ -7,6 +7,14 @@ audio back — with a live transcript, a reactive waveform, and saved chat histo
 Deploys to **Vercel** as a single project: static React frontend + a Python
 serverless function.
 
+## Interface
+
+![Interface](image.png)
+
+
+## Link to the app
+**deployed at vercel** 
+[App-link: amu-voice-agent](https://amu-voice-agent.vercel.app/)
 ## Stack
 
 | Layer | Tech |
