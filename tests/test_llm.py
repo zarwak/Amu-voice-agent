@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from llm import DEFAULT_MODEL, generate_reply
+from _llm import DEFAULT_MODEL, generate_reply
 
 
 def test_generate_reply_returns_message_content():

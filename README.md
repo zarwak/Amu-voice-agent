@@ -1,8 +1,11 @@
 # AMU — Real-Time Voice AI Agent
 
-Talk to it, it talks back. Browser captures your voice, the backend transcribes it
-(Groq Whisper), generates a reply (Groq Llama), speaks it (ElevenLabs), and streams
-the audio back — with live captions, a reactive waveform, and saved chat history.
+Talk to it, it talks back. The browser captures your voice, the API transcribes it
+(Groq Whisper), generates a reply (Groq Llama), speaks it (ElevenLabs), and sends the
+audio back — with a live transcript, a reactive waveform, and saved chat history.
+
+Deploys to **Vercel** as a single project: static React frontend + a Python
+serverless function.
 
 ## Stack
 
@@ -11,32 +14,59 @@ the audio back — with live captions, a reactive waveform, and saved chat histo
 | ASR | Groq (`whisper-large-v3-turbo`) |
 | LLM | Groq (`llama-3.3-70b-versatile`) |
 | TTS | ElevenLabs (`eleven_turbo_v2_5`) |
-| Backend | Python, FastAPI, WebSocket |
+| API | Python, FastAPI (serverless function) |
 | Frontend | React + Vite |
 
 ## Features
 
 - Automatic turn-taking — voice activity detection, no push-to-talk
 - Live transcript of both sides of the conversation
-- Chat history in a sidebar: rename, delete, switch between past chats
-- Conversations persist across reloads, and the assistant's memory is restored with them
+- Chat history sidebar: rename, delete, switch between past chats
+- Conversations persist across reloads
 - Spacebar to pause/resume listening
 - Settings: accent colour, microphone sensitivity
+
+## Layout
+
+```
+api/              Python serverless function
+  index.py        FastAPI app: /api/health, /api/converse
+  _*.py           shared modules (underscore = not a route)
+frontend/         React + Vite app
+tests/            pytest suite
+requirements.txt  runtime deps (what Vercel installs)
+vercel.json       build + routing config
+```
+
+## Architecture
+
+The API is **stateless** — required for serverless, since each request may hit a
+fresh instance with no memory of the last one. The browser owns the conversation
+and sends the relevant history with every request; the server rebuilds the model's
+context from it per call. History is capped (`MAX_HISTORY_TURNS`) so a long chat
+can't grow the prompt without bound.
+
+One turn = one `POST /api/converse` carrying the audio blob and the history,
+returning the transcript, the reply text, and the spoken audio.
+
+> **Trade-off:** this rules out streaming audio sentence-by-sentence and barge-in
+> (interrupting mid-reply), both of which need a persistent WebSocket connection and
+> therefore an always-on server (Railway/Render/Fly). If you want those later, the
+> API has to move off serverless.
 
 ## Running locally
 
 You need a [Groq API key](https://console.groq.com) and an
-[ElevenLabs API key](https://elevenlabs.io) (both have free tiers).
+[ElevenLabs API key](https://elevenlabs.io) — both have free tiers.
 
-**Backend**
+**API**
 
 ```bash
-cd backend
 python -m venv venv
-source venv/Scripts/activate   # macOS/Linux: source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env           # then fill in your keys
-uvicorn main:app --reload --port 8000
+source venv/Scripts/activate      # macOS/Linux: source venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env              # then fill in your keys
+uvicorn index:app --app-dir api --reload --port 8000
 ```
 
 **Frontend**
@@ -50,59 +80,41 @@ npm run dev
 
 Open http://localhost:5173 and allow microphone access.
 
-> Note: ElevenLabs' free tier blocks API access to some "library" voices. The default
-> voice (`pNInz6obpgDQGcFmaJgB`) is one that works on the free tier. If you get a
-> `402 paid_plan_required`, pick a different voice ID for `ELEVENLABS_VOICE_ID`.
+> ElevenLabs' free tier blocks API access to some "library" voices. The default
+> (`pNInz6obpgDQGcFmaJgB`) works on the free tier. A `402 paid_plan_required` means
+> you need a different `ELEVENLABS_VOICE_ID`.
 
 **Tests**
 
 ```bash
-cd backend && python -m pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
-## Deployment
+## Deploying to Vercel
 
-The frontend is a static build (Vercel). The backend holds a long-lived WebSocket
-per conversation, so it needs a host that supports persistent connections —
-Railway, Render, or Fly.io. Classic serverless platforms are not suitable.
+1. Push the repo to GitHub.
+2. Vercel → **New Project** → import the repo. Leave the root directory as the repo
+   root — `vercel.json` handles building the frontend and routing `/api/*` to the
+   Python function.
+3. Add environment variables (Project Settings → Environment Variables):
 
-### 1. Backend → Railway
-
-1. New Project → Deploy from GitHub repo → select this repo.
-2. In service Settings, set **Root Directory** to `backend`.
-3. Add environment variables:
    | Variable | Value |
    |----------|-------|
    | `GROQ_API_KEY` | your Groq key |
    | `ELEVENLABS_API_KEY` | your ElevenLabs key |
    | `ELEVENLABS_VOICE_ID` | `pNInz6obpgDQGcFmaJgB` (optional) |
-   | `CORS_ORIGINS` | `*` for now — tighten in step 3 |
-4. Deploy, then confirm `https://<your-app>.up.railway.app/health` returns
+
+   `VITE_API_URL` is **not** needed in production — the frontend calls `/api/...` on
+   its own origin. `CORS_ORIGINS` isn't needed either, for the same reason.
+4. Deploy, then check `https://<your-app>.vercel.app/api/health` returns
    `{"status":"ok"}`.
 
-### 2. Frontend → Vercel
+Microphone access requires HTTPS, which Vercel provides by default.
 
-1. New Project → import the same repo.
-2. Set **Root Directory** to `frontend` (framework auto-detects as Vite).
-3. Add environment variable:
-   | Variable | Value |
-   |----------|-------|
-   | `VITE_WS_URL` | `wss://<your-app>.up.railway.app/ws` |
+### Things to watch
 
-   Note `wss://` (not `ws://`) — production is HTTPS, and browsers block insecure
-   WebSockets from a secure page.
-4. Deploy.
-
-### 3. Lock down CORS
-
-Back in Railway, set `CORS_ORIGINS` to your actual Vercel URL
-(e.g. `https://amu.vercel.app`) and redeploy.
-
-Microphone access requires HTTPS, which both Vercel and Railway provide by default.
-
-## Notes
-
-- Conversation history is stored in the browser's `localStorage`, so it's per-device
-  and not shared between browsers.
-- The assistant's server-side memory lives for the life of the WebSocket connection;
-  the frontend replays the active chat on reconnect so its memory matches the screen.
+- **Turn latency is ~4–6s** (STT + LLM + TTS in one request). `vercel.json` sets
+  `maxDuration: 60` so a slow turn isn't cut off by the default timeout.
+- **Cold starts** add a second or two to the first turn after a period of idleness.
+- Conversation history lives in the browser's `localStorage`, so it's per-device and
+  not shared between browsers.

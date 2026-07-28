@@ -1,0 +1,7 @@
+# Local development and test only -- kept out of requirements.txt so Vercel
+# doesn't ship a test runner and a dev server into the deployed function.
+-r requirements.txt
+uvicorn[standard]
+pytest
+pytest-asyncio
+httpx

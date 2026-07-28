@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAudioCapture } from "./hooks/useAudioCapture";
-import { useVoiceSocket } from "./hooks/useVoiceSocket";
+import { useConverse } from "./hooks/useConverse";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { VoiceIndicator } from "./components/VoiceIndicator";
 import { TranscriptPanel } from "./components/TranscriptPanel";
@@ -9,7 +9,9 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { darken, withAlpha, sensitivityToThreshold } from "./utils/color";
 import "./App.css";
 
-const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
+// Empty means same-origin, which is the deployed case (frontend and the API
+// function are served from one Vercel domain). Local dev points at uvicorn.
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const SESSIONS_KEY = "amu-sessions";
 const ACTIVE_SESSION_KEY = "amu-active-session";
 const LEGACY_HISTORY_KEY = "amu-conversation-history";
@@ -106,7 +108,6 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState(loadStoredSensitivity);
   const levelRef = useRef(0);
   const pendingTurnRef = useRef(null);
-  const rehydratedRef = useRef(false);
 
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
@@ -135,68 +136,21 @@ export default function App() {
     );
   }, []);
 
-  const handleUserTranscript = useCallback(
-    (text) => {
-      const turn = { id: newId("turn"), userText: text, assistantText: "" };
-      pendingTurnRef.current = turn;
-      upsertTurn(turn);
-      setUiState("thinking");
-    },
-    [upsertTurn]
-  );
-
-  const handleAssistantText = useCallback(
-    (text) => {
-      if (!pendingTurnRef.current) return;
-      // Replace rather than mutate: this object is also referenced by session
-      // state, and mutating state-referenced data in place risks stale renders.
-      const updated = { ...pendingTurnRef.current, assistantText: text };
-      pendingTurnRef.current = updated;
-      upsertTurn(updated);
-    },
-    [upsertTurn]
-  );
-
-  const handleAudioChunk = useCallback(
-    (arrayBuffer) => {
-      setUiState("speaking");
-      playChunk(arrayBuffer);
-    },
-    [playChunk]
-  );
-
-  const handleNoSpeech = useCallback(() => {
-    setUiState("listening");
-  }, []);
-
-  const handleTurnComplete = useCallback(() => {
-    pendingTurnRef.current = null;
-    setUiState("listening");
-  }, []);
-
-  const handleError = useCallback((message) => {
+  const showError = useCallback((message) => {
     setBanner(message);
     setUiState("listening");
     setTimeout(() => setBanner(null), 4000);
   }, []);
 
-  const { status, sendAudio, sendJson } = useVoiceSocket(WS_URL, {
-    onUserTranscript: handleUserTranscript,
-    onAssistantText: handleAssistantText,
-    onAudioChunk: handleAudioChunk,
-    onNoSpeech: handleNoSpeech,
-    onTurnComplete: handleTurnComplete,
-    onError: handleError,
-  });
+  const { sendTurn } = useConverse(API_BASE);
 
   useEffect(() => {
-    if (status !== "open") return;
     if (micEnabled && (uiState === "idle" || uiState === "off")) {
       setUiState("listening");
     } else if (!micEnabled && uiState === "listening") {
       setUiState("off");
     }
-  }, [status, micEnabled, uiState]);
+  }, [micEnabled, uiState]);
 
   useEffect(() => {
     // Only persist chats that actually contain something. An untouched "+ New"
@@ -224,52 +178,25 @@ export default function App() {
     localStorage.setItem(SENSITIVITY_STORAGE_KEY, String(sensitivity));
   }, [sensitivity]);
 
-  // Give the backend the active chat's context on (re)connect, so the LLM's
-  // memory matches what's on screen rather than starting blank.
-  useEffect(() => {
-    if (status !== "open") {
-      rehydratedRef.current = false;
-      return;
-    }
-    if (rehydratedRef.current) return;
-    rehydratedRef.current = true;
-    const turns = activeTurns.filter(Boolean);
-    if (turns.length > 0) {
-      sendJson({
-        type: "rehydrate",
-        turns: turns.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
-      });
-    }
-  }, [status, activeTurns, sendJson]);
-
+  // No backend context to sync: the server is stateless and receives the
+  // active chat's history with each request, so switching chats is purely
+  // local state.
   const handleNewSession = useCallback(() => {
     pendingTurnRef.current = null;
     const fresh = makeSession();
     setSessions((prev) => [fresh, ...prev.filter((s) => s.turns.length > 0)]);
     setActiveId(fresh.id);
-    sendJson({ type: "new_session" });
-  }, [sendJson]);
+  }, []);
 
   const handleSelectSession = useCallback(
     (sessionId) => {
-      const target = sessions.find((s) => s.id === sessionId);
-      if (!target || sessionId === activeId) return;
-
+      if (sessionId === activeId) return;
       pendingTurnRef.current = null;
       // Drop the chat we're leaving if nothing was ever said in it.
       setSessions((prev) => prev.filter((s) => s.turns.length > 0 || s.id === sessionId));
       setActiveId(sessionId);
-
-      const turns = target.turns.filter(Boolean);
-      sendJson({ type: "new_session" });
-      if (turns.length > 0) {
-        sendJson({
-          type: "rehydrate",
-          turns: turns.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
-        });
-      }
     },
-    [sessions, activeId, sendJson]
+    [activeId]
   );
 
   const handleRenameSession = useCallback((sessionId, newTitle) => {
@@ -288,24 +215,12 @@ export default function App() {
       }
 
       // Deleting the open chat: fall back to the most recent one, or start
-      // fresh if that was the last chat. Reset backend context either way.
+      // fresh if that was the last chat.
       pendingTurnRef.current = null;
-      sendJson({ type: "new_session" });
-
       const next = [...remaining].sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (next) {
         setSessions(remaining);
         setActiveId(next.id);
-        const turns = next.turns.filter(Boolean);
-        if (turns.length > 0) {
-          sendJson({
-            type: "rehydrate",
-            turns: turns.map((t) => ({
-              userText: t.userText,
-              assistantText: t.assistantText,
-            })),
-          });
-        }
         return;
       }
 
@@ -313,7 +228,7 @@ export default function App() {
       setSessions([fresh]);
       setActiveId(fresh.id);
     },
-    [sessions, activeId, sendJson]
+    [sessions, activeId]
   );
 
   useEffect(() => {
@@ -330,17 +245,54 @@ export default function App() {
   const uiStateRef = useRef(uiState);
   uiStateRef.current = uiState;
 
+  // Read history via a ref so handleUtteranceReady keeps a stable identity --
+  // useAudioCapture's effect depends on it, and a changing reference would
+  // tear down and rebuild the microphone after every turn.
+  const activeTurnsRef = useRef(activeTurns);
+  activeTurnsRef.current = activeTurns;
+
   const handleUtteranceReady = useCallback(
-    (blob) => {
+    async (blob) => {
       // Ignore speech captured while a turn is already in flight (thinking/
-      // speaking), so one utterance can't trigger multiple overlapping
-      // replies. Read via ref rather than a dependency so this callback's
-      // identity stays stable -- useAudioCapture's effect depends on it, and
-      // an unstable reference would tear down/recreate the mic every turn.
+      // speaking), so one utterance can't trigger overlapping replies.
       if (uiStateRef.current !== "listening") return;
-      sendAudio(blob);
+      setUiState("thinking");
+
+      let data;
+      try {
+        data = await sendTurn(blob, activeTurnsRef.current);
+      } catch {
+        showError("Couldn't reach the assistant. Please try again.");
+        return;
+      }
+
+      if (data.noSpeech) {
+        setUiState("listening");
+        return;
+      }
+
+      // A transcript with an error still gets recorded, so you can see what it
+      // heard even when the reply failed.
+      const turn = {
+        id: newId("turn"),
+        userText: data.transcript || "",
+        assistantText: data.reply || "",
+      };
+      if (turn.userText) upsertTurn(turn);
+
+      if (data.error) {
+        showError(data.error);
+        return;
+      }
+
+      if (data.audioBuffer) {
+        setUiState("speaking");
+        playChunk(data.audioBuffer, () => setUiState("listening"));
+      } else {
+        setUiState("listening");
+      }
     },
-    [sendAudio]
+    [sendTurn, upsertTurn, playChunk, showError]
   );
 
   const handleLevel = useCallback((rms) => {
@@ -348,7 +300,7 @@ export default function App() {
   }, []);
 
   const { error: micError } = useAudioCapture({
-    enabled: status === "open" && micEnabled,
+    enabled: micEnabled,
     onUtteranceReady: handleUtteranceReady,
     onLevel: handleLevel,
     silenceThreshold: sensitivityToThreshold(sensitivity),
@@ -400,7 +352,6 @@ export default function App() {
             <p className="subtitle">Your voice assistant</p>
           </header>
 
-          {status !== "open" && <p className="status-banner">Connection: {status}</p>}
           {micError && <p className="status-banner error">Microphone error: {micError}</p>}
           {banner && <p className="status-banner error">{banner}</p>}
 

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from tts import synthesize_speech
+from _tts import synthesize_speech
 
 
 def test_synthesize_speech_joins_chunks():

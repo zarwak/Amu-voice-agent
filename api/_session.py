@@ -25,16 +25,32 @@ DEFAULT_SYSTEM_PROMPT = (
     "guessing confidently."
 )
 
+# The client sends its whole conversation with each request, so cap how much of
+# it reaches the model: unbounded history would grow the prompt (and latency and
+# cost) without limit over a long chat.
+MAX_HISTORY_TURNS = 20
 
-class ConversationSession:
-    def __init__(self, system_prompt: str = DEFAULT_SYSTEM_PROMPT):
-        self._messages = [{"role": "system", "content": system_prompt}]
 
-    def add_user_message(self, text: str) -> None:
-        self._messages.append({"role": "user", "content": text})
+def build_messages(
+    history: list[dict],
+    user_text: str,
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+) -> list[dict]:
+    """Build the LLM message list from client-supplied history plus the new turn.
 
-    def add_assistant_message(self, text: str) -> None:
-        self._messages.append({"role": "assistant", "content": text})
+    `history` is a list of {"userText": str, "assistantText": str} dicts. Entries
+    that are malformed or empty are skipped rather than sent as blank messages.
+    """
+    messages = [{"role": "system", "content": system_prompt}]
 
-    def get_messages(self) -> list[dict]:
-        return list(self._messages)
+    recent = [t for t in (history or []) if isinstance(t, dict)][-MAX_HISTORY_TURNS:]
+    for turn in recent:
+        user = (turn.get("userText") or "").strip()
+        assistant = (turn.get("assistantText") or "").strip()
+        if user:
+            messages.append({"role": "user", "content": user})
+        if assistant:
+            messages.append({"role": "assistant", "content": assistant})
+
+    messages.append({"role": "user", "content": user_text})
+    return messages

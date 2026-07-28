@@ -5,18 +5,24 @@ export function useAudioPlayer() {
   const audioElRef = useRef(null);
   const urlRef = useRef(null);
 
-  const playChunk = useCallback((arrayBuffer) => {
+  const playChunk = useCallback((arrayBuffer, onEnded) => {
     const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     urlRef.current = url;
     const audio = new Audio(url);
     audioElRef.current = audio;
     setIsPlaying(true);
-    audio.onended = () => {
+
+    const finish = () => {
       setIsPlaying(false);
       URL.revokeObjectURL(url);
+      onEnded?.();
     };
-    audio.play();
+    audio.onended = finish;
+    // Don't strand the UI in "speaking" if playback fails (autoplay blocked,
+    // decode error) -- treat it the same as reaching the end.
+    audio.onerror = finish;
+    audio.play().catch(finish);
   }, []);
 
   const stop = useCallback(() => {

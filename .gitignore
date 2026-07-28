@@ -1,14 +1,22 @@
+# Secrets -- never commit real keys. Broad patterns so a .env in any
+# directory is covered, with an explicit allow for the templates.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
-backend/.env
 
 # Node
 node_modules/
 frontend/dist/
-frontend/.env
+
+# Vercel
+.vercel/
 
 # OS
 .DS_Store

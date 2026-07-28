@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from stt import transcribe_audio
+from _stt import transcribe_audio
 
 
 def test_transcribe_audio_returns_text():
