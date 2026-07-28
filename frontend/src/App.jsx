@@ -82,6 +82,13 @@ function loadStoredSensitivity() {
   return raw >= 1 && raw <= 10 ? raw : DEFAULT_SENSITIVITY;
 }
 
+// Touch devices block microphone capture and audio playback that isn't started
+// by a real tap, so on mobile we wait for one instead of auto-starting and
+// failing silently. Desktop keeps starting straight away.
+const IS_TOUCH =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
+
 function initialState() {
   const loaded = loadSessions();
   const storedActive = localStorage.getItem(ACTIVE_SESSION_KEY);
@@ -99,7 +106,7 @@ const INITIAL = initialState();
 
 export default function App() {
   const [uiState, setUiState] = useState("idle");
-  const [micEnabled, setMicEnabled] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(!IS_TOUCH);
   const [sessions, setSessions] = useState(INITIAL.sessions);
   const [activeId, setActiveId] = useState(INITIAL.activeId);
   const [banner, setBanner] = useState(null);
@@ -112,7 +119,15 @@ export default function App() {
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
-  const { playChunk } = useAudioPlayer();
+  const { playChunk, unlock } = useAudioPlayer();
+
+  // Single entry point for starting/stopping listening, shared by the tap
+  // target and the spacebar. Unlocking audio here means it always happens
+  // inside a genuine user gesture, which mobile requires.
+  const toggleMic = useCallback(() => {
+    unlock();
+    setMicEnabled((prev) => !prev);
+  }, [unlock]);
 
   const activeTurns = useMemo(
     () => sessions.find((s) => s.id === activeId)?.turns ?? [],
@@ -233,14 +248,17 @@ export default function App() {
 
   useEffect(() => {
     function handleKeyDown(e) {
+      // Ignore when typing (e.g. renaming a chat) so Space types a space.
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
       if (e.code === "Space" && !e.repeat) {
         e.preventDefault();
-        setMicEnabled((prev) => !prev);
+        toggleMic();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [toggleMic]);
 
   const uiStateRef = useRef(uiState);
   uiStateRef.current = uiState;
@@ -306,10 +324,12 @@ export default function App() {
     silenceThreshold: sensitivityToThreshold(sensitivity),
   });
 
+  const resume = IS_TOUCH ? "Tap to start" : "Tap or press Space to start";
+  const pause = IS_TOUCH ? "Tap to pause" : "Tap or press Space to pause";
   const stateLabel = {
     idle: "Getting ready…",
-    off: "Paused — press Space to listen",
-    listening: "Listening… (Space to pause)",
+    off: `Paused — ${resume}`,
+    listening: `Listening… (${pause})`,
     thinking: "Thinking",
     speaking: "Speaking…",
   }[uiState];
@@ -355,7 +375,15 @@ export default function App() {
           {micError && <p className="status-banner error">Microphone error: {micError}</p>}
           {banner && <p className="status-banner error">{banner}</p>}
 
-          <VoiceIndicator state={uiState} levelRef={levelRef} accentColor={accentColor} />
+          <button
+            type="button"
+            className="mic-toggle"
+            onClick={toggleMic}
+            aria-pressed={micEnabled}
+            aria-label={micEnabled ? "Pause listening" : "Start listening"}
+          >
+            <VoiceIndicator state={uiState} levelRef={levelRef} accentColor={accentColor} />
+          </button>
           <p className="state-label">
             {stateLabel}
             {uiState === "thinking" && (

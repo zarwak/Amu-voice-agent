@@ -1,9 +1,24 @@
 import { useCallback, useRef, useState } from "react";
 
+// A one-sample silent WAV. Playing this inside a real tap handler satisfies
+// mobile autoplay policies, so later replies (which arrive asynchronously,
+// long after the tap) are allowed to play.
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioElRef = useRef(null);
   const urlRef = useRef(null);
+  const unlockedRef = useRef(false);
+
+  // Must be called from a user-gesture handler. No-op after the first call.
+  const unlock = useCallback(() => {
+    if (unlockedRef.current) return;
+    unlockedRef.current = true;
+    const primer = new Audio(SILENT_WAV);
+    primer.play().catch(() => {});
+  }, []);
 
   const playChunk = useCallback((arrayBuffer, onEnded) => {
     const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
@@ -37,5 +52,5 @@ export function useAudioPlayer() {
     setIsPlaying(false);
   }, []);
 
-  return { playChunk, stop, isPlaying };
+  return { playChunk, stop, unlock, isPlaying };
 }

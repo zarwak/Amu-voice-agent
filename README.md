@@ -31,7 +31,9 @@ serverless function.
 - Live transcript of both sides of the conversation
 - Chat history sidebar: rename, delete, switch between past chats
 - Conversations persist across reloads
-- Spacebar to pause/resume listening
+- Tap the waveform (or press Space on desktop) to pause/resume listening
+- Works on mobile: on touch devices listening starts on first tap, which is
+  what browsers require before granting the mic and allowing audio playback
 - Settings: accent colour, microphone sensitivity
 
 ## Layout
