@@ -16,7 +16,10 @@ load_dotenv()
 
 app = FastAPI()
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+# Comma-separated; tolerate spaces since this is typed into a hosting dashboard.
+cors_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
