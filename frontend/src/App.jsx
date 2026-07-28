@@ -92,8 +92,14 @@ export default function App() {
   }, []);
 
   const handleAssistantText = useCallback((text) => {
-    if (pendingTurnRef.current) pendingTurnRef.current.assistantText = text;
-    setCurrentTurn((prev) => (prev ? { ...prev, assistantText: text } : prev));
+    if (!pendingTurnRef.current) return;
+    // Replace rather than mutate: the ref and currentTurn state point at the
+    // same object, and mutating state-referenced data in place is how you get
+    // stale renders. Keeping their identity in sync also guarantees the turn
+    // that lands in history is exactly what was shown on screen.
+    const updated = { ...pendingTurnRef.current, assistantText: text };
+    pendingTurnRef.current = updated;
+    setCurrentTurn(updated);
   }, []);
 
   const handleAudioChunk = useCallback(
@@ -109,9 +115,14 @@ export default function App() {
   }, []);
 
   const handleTurnComplete = useCallback(() => {
-    if (pendingTurnRef.current) {
-      setHistory((prev) => [...prev, pendingTurnRef.current]);
-      pendingTurnRef.current = null;
+    // Capture the turn into a local BEFORE clearing the ref. State updaters
+    // are lazy -- React runs them during the next render, and StrictMode runs
+    // them twice -- so an updater that read pendingTurnRef.current directly
+    // would see the already-nulled ref and append null instead of the turn.
+    const completedTurn = pendingTurnRef.current;
+    pendingTurnRef.current = null;
+    if (completedTurn) {
+      setHistory((prev) => [...prev, completedTurn]);
     }
     setCurrentTurn(null);
     setUiState("listening");
