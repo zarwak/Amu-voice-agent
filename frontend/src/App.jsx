@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAudioCapture } from "./hooks/useAudioCapture";
 import { useVoiceSocket } from "./hooks/useVoiceSocket";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
@@ -10,53 +10,65 @@ import { darken, withAlpha, sensitivityToThreshold } from "./utils/color";
 import "./App.css";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
-const STORAGE_KEY = "amu-conversation-history";
-const SESSIONS_STORAGE_KEY = "amu-past-sessions";
+const SESSIONS_KEY = "amu-sessions";
+const ACTIVE_SESSION_KEY = "amu-active-session";
+const LEGACY_HISTORY_KEY = "amu-conversation-history";
+const LEGACY_SESSIONS_KEY = "amu-past-sessions";
 const ACCENT_STORAGE_KEY = "amu-accent-color";
 const SENSITIVITY_STORAGE_KEY = "amu-mic-sensitivity";
 const DEFAULT_ACCENT = "#f2a6c6";
 const DEFAULT_SENSITIVITY = 5;
 
-let turnIdCounter = 0;
+let turnCounter = 0;
 
-function loadStoredHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    const clean = parsed.filter(Boolean);
-    const maxId = clean.reduce(
-      (max, t) => (typeof t?.id === "number" && t.id > max ? t.id : max),
-      -1
-    );
-    turnIdCounter = maxId + 1;
-    return clean;
-  } catch {
-    return [];
-  }
+function newId(prefix) {
+  turnCounter += 1;
+  return `${prefix}-${Date.now()}-${turnCounter}`;
 }
 
-function loadStoredSessions() {
-  try {
-    const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(Boolean)
-      .map((s) => ({ ...s, turns: Array.isArray(s.turns) ? s.turns.filter(Boolean) : [] }));
-  } catch {
-    return [];
-  }
+function makeSession(turns = []) {
+  return { id: newId("session"), title: "", turns, updatedAt: Date.now() };
 }
 
-function makeSessionFromTurns(turns) {
-  const clean = turns.filter(Boolean);
+function normalizeSession(s) {
   return {
-    id: `session-${Date.now()}`,
-    title: clean[0]?.userText?.slice(0, 50) || "Conversation",
-    turns: clean,
-    updatedAt: Date.now(),
+    id: s.id || newId("session"),
+    title: typeof s.title === "string" ? s.title : "",
+    turns: Array.isArray(s.turns) ? s.turns.filter(Boolean) : [],
+    updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : Date.now(),
   };
+}
+
+// Sessions are the single source of truth. Older builds kept the active
+// conversation in one key and archived ones in another; fold both in so an
+// upgrade doesn't look like data loss.
+function loadSessions() {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).map(normalizeSession);
+    }
+
+    const migrated = [];
+    const legacyPast = JSON.parse(localStorage.getItem(LEGACY_SESSIONS_KEY) || "[]");
+    if (Array.isArray(legacyPast)) {
+      legacyPast.filter(Boolean).forEach((s) => migrated.push(normalizeSession(s)));
+    }
+    const legacyHistory = JSON.parse(localStorage.getItem(LEGACY_HISTORY_KEY) || "[]");
+    if (Array.isArray(legacyHistory) && legacyHistory.filter(Boolean).length > 0) {
+      migrated.unshift(normalizeSession({ turns: legacyHistory.filter(Boolean) }));
+    }
+    return migrated;
+  } catch {
+    return [];
+  }
+}
+
+function sessionTitle(session) {
+  if (session.title) return session.title;
+  const firstUserText = session.turns.find((t) => t?.userText)?.userText;
+  return firstUserText ? firstUserText.slice(0, 60) : "New chat";
 }
 
 function loadStoredAccent() {
@@ -68,12 +80,26 @@ function loadStoredSensitivity() {
   return raw >= 1 && raw <= 10 ? raw : DEFAULT_SENSITIVITY;
 }
 
+function initialState() {
+  const loaded = loadSessions();
+  const storedActive = localStorage.getItem(ACTIVE_SESSION_KEY);
+  if (loaded.some((s) => s.id === storedActive)) {
+    return { sessions: loaded, activeId: storedActive };
+  }
+  // Resume the most recent chat rather than dropping the user into a blank one.
+  const mostRecent = [...loaded].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  if (mostRecent) return { sessions: loaded, activeId: mostRecent.id };
+  const fresh = makeSession();
+  return { sessions: [fresh], activeId: fresh.id };
+}
+
+const INITIAL = initialState();
+
 export default function App() {
   const [uiState, setUiState] = useState("idle");
   const [micEnabled, setMicEnabled] = useState(true);
-  const [history, setHistory] = useState(loadStoredHistory);
-  const [pastSessions, setPastSessions] = useState(loadStoredSessions);
-  const [currentTurn, setCurrentTurn] = useState(null);
+  const [sessions, setSessions] = useState(INITIAL.sessions);
+  const [activeId, setActiveId] = useState(INITIAL.activeId);
   const [banner, setBanner] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
@@ -82,25 +108,54 @@ export default function App() {
   const pendingTurnRef = useRef(null);
   const rehydratedRef = useRef(false);
 
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
   const { playChunk } = useAudioPlayer();
 
-  const handleUserTranscript = useCallback((text) => {
-    const turn = { id: turnIdCounter++, userText: text, assistantText: "" };
-    pendingTurnRef.current = turn;
-    setCurrentTurn(turn);
-    setUiState("thinking");
+  const activeTurns = useMemo(
+    () => sessions.find((s) => s.id === activeId)?.turns ?? [],
+    [sessions, activeId]
+  );
+
+  // Insert or update a turn in the active session. Turns are written as they
+  // happen (not only once complete), so an in-progress exchange survives a
+  // reload and the sidebar reflects it immediately.
+  const upsertTurn = useCallback((turn) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeIdRef.current) return s;
+        const exists = s.turns.some((t) => t.id === turn.id);
+        return {
+          ...s,
+          turns: exists ? s.turns.map((t) => (t.id === turn.id ? turn : t)) : [...s.turns, turn],
+          updatedAt: Date.now(),
+        };
+      })
+    );
   }, []);
 
-  const handleAssistantText = useCallback((text) => {
-    if (!pendingTurnRef.current) return;
-    // Replace rather than mutate: the ref and currentTurn state point at the
-    // same object, and mutating state-referenced data in place is how you get
-    // stale renders. Keeping their identity in sync also guarantees the turn
-    // that lands in history is exactly what was shown on screen.
-    const updated = { ...pendingTurnRef.current, assistantText: text };
-    pendingTurnRef.current = updated;
-    setCurrentTurn(updated);
-  }, []);
+  const handleUserTranscript = useCallback(
+    (text) => {
+      const turn = { id: newId("turn"), userText: text, assistantText: "" };
+      pendingTurnRef.current = turn;
+      upsertTurn(turn);
+      setUiState("thinking");
+    },
+    [upsertTurn]
+  );
+
+  const handleAssistantText = useCallback(
+    (text) => {
+      if (!pendingTurnRef.current) return;
+      // Replace rather than mutate: this object is also referenced by session
+      // state, and mutating state-referenced data in place risks stale renders.
+      const updated = { ...pendingTurnRef.current, assistantText: text };
+      pendingTurnRef.current = updated;
+      upsertTurn(updated);
+    },
+    [upsertTurn]
+  );
 
   const handleAudioChunk = useCallback(
     (arrayBuffer) => {
@@ -115,16 +170,7 @@ export default function App() {
   }, []);
 
   const handleTurnComplete = useCallback(() => {
-    // Capture the turn into a local BEFORE clearing the ref. State updaters
-    // are lazy -- React runs them during the next render, and StrictMode runs
-    // them twice -- so an updater that read pendingTurnRef.current directly
-    // would see the already-nulled ref and append null instead of the turn.
-    const completedTurn = pendingTurnRef.current;
     pendingTurnRef.current = null;
-    if (completedTurn) {
-      setHistory((prev) => [...prev, completedTurn]);
-    }
-    setCurrentTurn(null);
     setUiState("listening");
   }, []);
 
@@ -153,13 +199,19 @@ export default function App() {
   }, [status, micEnabled, uiState]);
 
   useEffect(() => {
-    const toSave = currentTurn ? [...history, currentTurn] : history;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave.filter(Boolean)));
-  }, [history, currentTurn]);
+    // Only persist chats that actually contain something. An untouched "+ New"
+    // chat exists in memory but shouldn't survive a reload -- otherwise you
+    // come back to a blank transcript with nothing selected in the sidebar,
+    // which reads as lost data. On reload the most recent real chat resumes.
+    localStorage.setItem(
+      SESSIONS_KEY,
+      JSON.stringify(sessions.filter((s) => s.turns.length > 0))
+    );
+  }, [sessions]);
 
   useEffect(() => {
-    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(pastSessions));
-  }, [pastSessions]);
+    localStorage.setItem(ACTIVE_SESSION_KEY, activeId);
+  }, [activeId]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--accent-pink", accentColor);
@@ -172,69 +224,97 @@ export default function App() {
     localStorage.setItem(SENSITIVITY_STORAGE_KEY, String(sensitivity));
   }, [sensitivity]);
 
+  // Give the backend the active chat's context on (re)connect, so the LLM's
+  // memory matches what's on screen rather than starting blank.
   useEffect(() => {
-    if (status === "open" && !rehydratedRef.current) {
-      rehydratedRef.current = true;
-      const cleanHistory = history.filter(Boolean);
-      if (cleanHistory.length > 0) {
-        sendJson({
-          type: "rehydrate",
-          turns: cleanHistory.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
-        });
-      }
-    } else if (status !== "open") {
+    if (status !== "open") {
       rehydratedRef.current = false;
+      return;
     }
-  }, [status, history, sendJson]);
+    if (rehydratedRef.current) return;
+    rehydratedRef.current = true;
+    const turns = activeTurns.filter(Boolean);
+    if (turns.length > 0) {
+      sendJson({
+        type: "rehydrate",
+        turns: turns.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
+      });
+    }
+  }, [status, activeTurns, sendJson]);
 
   const handleNewSession = useCallback(() => {
-    if (history.length > 0) {
-      setPastSessions((prev) => [makeSessionFromTurns(history), ...prev]);
-    }
     pendingTurnRef.current = null;
-    setCurrentTurn(null);
-    setHistory([]);
+    const fresh = makeSession();
+    setSessions((prev) => [fresh, ...prev.filter((s) => s.turns.length > 0)]);
+    setActiveId(fresh.id);
     sendJson({ type: "new_session" });
-  }, [history, sendJson]);
+  }, [sendJson]);
 
   const handleSelectSession = useCallback(
     (sessionId) => {
-      const target = pastSessions.find((s) => s.id === sessionId);
-      if (!target) return;
+      const target = sessions.find((s) => s.id === sessionId);
+      if (!target || sessionId === activeId) return;
 
-      setPastSessions((prev) => {
-        const withoutTarget = prev.filter((s) => s.id !== sessionId);
-        return history.length > 0
-          ? [makeSessionFromTurns(history), ...withoutTarget]
-          : withoutTarget;
-      });
-
-      const cleanTarget = target.turns.filter(Boolean);
       pendingTurnRef.current = null;
-      setCurrentTurn(null);
-      setHistory(cleanTarget);
+      // Drop the chat we're leaving if nothing was ever said in it.
+      setSessions((prev) => prev.filter((s) => s.turns.length > 0 || s.id === sessionId));
+      setActiveId(sessionId);
 
+      const turns = target.turns.filter(Boolean);
       sendJson({ type: "new_session" });
-      sendJson({
-        type: "rehydrate",
-        turns: cleanTarget.map((t) => ({
-          userText: t.userText,
-          assistantText: t.assistantText,
-        })),
-      });
+      if (turns.length > 0) {
+        sendJson({
+          type: "rehydrate",
+          turns: turns.map((t) => ({ userText: t.userText, assistantText: t.assistantText })),
+        });
+      }
     },
-    [history, pastSessions, sendJson]
+    [sessions, activeId, sendJson]
   );
 
   const handleRenameSession = useCallback((sessionId, newTitle) => {
-    setPastSessions((prev) =>
+    setSessions((prev) =>
       prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
     );
   }, []);
 
-  const handleDeleteSession = useCallback((sessionId) => {
-    setPastSessions((prev) => prev.filter((s) => s.id !== sessionId));
-  }, []);
+  const handleDeleteSession = useCallback(
+    (sessionId) => {
+      const remaining = sessions.filter((s) => s.id !== sessionId);
+
+      if (sessionId !== activeId) {
+        setSessions(remaining);
+        return;
+      }
+
+      // Deleting the open chat: fall back to the most recent one, or start
+      // fresh if that was the last chat. Reset backend context either way.
+      pendingTurnRef.current = null;
+      sendJson({ type: "new_session" });
+
+      const next = [...remaining].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (next) {
+        setSessions(remaining);
+        setActiveId(next.id);
+        const turns = next.turns.filter(Boolean);
+        if (turns.length > 0) {
+          sendJson({
+            type: "rehydrate",
+            turns: turns.map((t) => ({
+              userText: t.userText,
+              assistantText: t.assistantText,
+            })),
+          });
+        }
+        return;
+      }
+
+      const fresh = makeSession();
+      setSessions([fresh]);
+      setActiveId(fresh.id);
+    },
+    [sessions, activeId, sendJson]
+  );
 
   useEffect(() => {
     function handleKeyDown(e) {
@@ -282,23 +362,24 @@ export default function App() {
     speaking: "Speaking…",
   }[uiState];
 
-  const transcriptTurns = [...history, ...(currentTurn ? [currentTurn] : [])].filter(Boolean);
+  const transcriptTurns = activeTurns.filter(Boolean);
 
-  const currentSession =
-    transcriptTurns.length > 0
-      ? {
-          id: "current",
-          title: transcriptTurns[0]?.userText?.slice(0, 50) || "Current conversation",
-          turns: transcriptTurns,
-        }
-      : null;
+  // An untouched chat isn't worth a row in the list until something is said.
+  const listedSessions = useMemo(
+    () =>
+      sessions
+        .filter((s) => s.turns.length > 0)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((s) => ({ id: s.id, title: sessionTitle(s), updatedAt: s.updatedAt })),
+    [sessions]
+  );
 
   return (
     <div className="app">
       <div className="shell">
         <SessionsSidebar
-          currentSession={currentSession}
-          sessions={pastSessions}
+          sessions={listedSessions}
+          activeId={activeId}
           onNewSession={handleNewSession}
           onSelectSession={handleSelectSession}
           onRenameSession={handleRenameSession}

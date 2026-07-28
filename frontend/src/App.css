@@ -145,17 +145,12 @@ body {
   background: #fdf0f5;
 }
 
-.session-item.is-current-session {
-  cursor: default;
-  background: var(--card-bg);
+.session-item.is-active {
+  background: #fdf0f5;
   border-color: var(--accent-pink);
 }
 
-.session-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.session-item.is-active .session-title {
   color: var(--accent-pink-deep);
 }
 
